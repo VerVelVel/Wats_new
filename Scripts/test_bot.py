@@ -8,7 +8,7 @@ from parser_1 import parse_channels  # Импортируем функцию и�
 from preprocessing_classificator import preprocess_data, init_classifier, classify_text
 
 # Настройки бота aiogram
-bot_token = '7466597015:AAGz2jDO8yfk4rE8nPgi0Koo6XKCEpwSgsc'
+bot_token = 'токен'
 bot = Bot(token=bot_token)
 dp = Dispatcher(bot)
 
