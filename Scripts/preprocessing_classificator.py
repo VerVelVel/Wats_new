@@ -7,6 +7,7 @@ import torch
 from transformers import pipeline
 from datasets import Dataset
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor
 
 # Загрузка данных и предобработка
 def preprocess_data(df):
@@ -50,5 +51,7 @@ def classify_text(df, classifier):
         most_likely_label = result['labels'][highest_score_index]
         return most_likely_label
 
-    df.loc[:, 'Category'] = df.apply(classify_row, axis=1)
+    with ThreadPoolExecutor() as executor:
+        df['Category'] = list(executor.map(classify_row, [row for _, row in df.iterrows()]))
+
     return df
