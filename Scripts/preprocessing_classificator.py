@@ -1,7 +1,3 @@
-#скачать один раз
-nltk.download('stopwords')
-nltk.download('wordnet')
-
 import pandas as pd
 import re
 import string
@@ -10,14 +6,11 @@ from nltk.stem import WordNetLemmatizer
 import torch
 from transformers import pipeline
 from datasets import Dataset
+from functools import lru_cache
 
-
-# df = pd.read #добавить файл с данными после парсинга
 # Загрузка данных и предобработка
 def preprocess_data(df):
-
-    df = df.dropna(subset=['Message Text'])
-
+    df = df.dropna(subset=['Content'])
     stop_words = set(stopwords.words('english')).union(set(stopwords.words('russian')))
     lemmatizer = WordNetLemmatizer()
 
@@ -34,33 +27,28 @@ def preprocess_data(df):
         text = re.sub(r'\s+', ' ', text).strip()
         return text
 
-    df['clean_text'] = df['Message Text'].apply(preprocess_text)
-    df['message_channel'] = df['clean_text'] + ' ' + df['Channel Name']
-
+    df.loc[:, 'clean_text'] = df['Content'].apply(preprocess_text)
+    df.loc[:, 'message_channel'] = df['clean_text'] + ' ' + df['Source']
     return df
 
-df = preprocess_data(df)
-
-# Инициализация модели для zero-shot классификации
+# Инициализация модели для zero-shot классификации с кэшированием
+@lru_cache(maxsize=1)
 def init_classifier():
-    classifier = pipeline("zero-shot-classification", model="MoritzLaurer/mDeBERTa-v3-base-mnli-xnli", device=0 if torch.cuda.is_available() else -1)
+    # Проверка доступности CUDA до инициализации модели
+    device = 0 if torch.cuda.is_available() else -1
+    if device == -1:
+        print("CUDA is not available. Using CPU instead.")
+    classifier = pipeline("zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v2.0", device=device)
     return classifier
 
-classifier = init_classifier()
-dataset = Dataset.from_pandas(df)
-# Возможные категории для классификации
-candidate_labels = ["технологии", "политика", "спорт", "экономика", "развлечения", "здоровье", "образование", "мода", "происшествия"]
-
 # Функция для классификации текста
-def classify_text(example):
-    result = classifier(example['message_channel'], candidate_labels)
-    # Извлечение наиболее вероятного класса
-    highest_score_index = result['scores'].index(max(result['scores']))
-    most_likely_label = result['labels'][highest_score_index]
-    example['classification'] = most_likely_label
-    return example
+def classify_text(df, classifier):
+    candidate_labels = ["технологии", "политика", "спорт", "экономика", "развлечения", "здоровье", "образование", "мода", "происшествия"]
+    def classify_row(row):
+        result = classifier(row['message_channel'], candidate_labels)
+        highest_score_index = result['scores'].index(max(result['scores']))
+        most_likely_label = result['labels'][highest_score_index]
+        return most_likely_label
 
-classified_dataset = dataset.map(classify_text)
-
-# Преобразование обратно в DataFrame для удобства работы
-classified_df = classified_dataset.to_pandas()
+    df.loc[:, 'Category'] = df.apply(classify_row, axis=1)
+    return df
