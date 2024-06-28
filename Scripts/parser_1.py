@@ -7,11 +7,12 @@ from telethon.tl.functions.messages import GetHistoryRequest
 from telethon.tl.types import InputPeerChannel
 import csv
 import asyncio
+import os
 
 # Настройки клиента Telethon
-api_id = 29936300
-api_hash = 'fde88dcaee764c22dab01c68a8a3c347'
-phone_number = "+79313528188"
+api_id = 
+api_hash = 
+phone_number = 
 
 # Создание клиента Telethon
 client = TelegramClient('session_name', api_id, api_hash)
@@ -21,9 +22,11 @@ logger = logging.getLogger(__name__)
 
 # Функция для сохранения данных в CSV
 def save_to_csv(data, filename='output.csv'):
+    scripts_dir = os.path.dirname(os.path.abspath(__file__))  # Получаем текущую директорию скрипта
+    filepath = os.path.join(scripts_dir, filename)
     logger.info(f"Сохранение данных в файл {filename}")
     try:
-        with open(filename, 'w', newline='', encoding='utf-8') as f:
+        with open(filepath, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow(['Title', 'Content', 'Published At', 'Source', 'URL', 'Category'])  # Заголовки столбцов
             writer.writerows(data)
