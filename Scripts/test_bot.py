@@ -5,10 +5,10 @@ import os
 from aiogram.utils import executor
 import pandas as pd
 from parser_1 import parse_channels  # Импортируем функцию из parser.py
-from preprocessing_classificator import preprocess_data, init_classifier, classify_text
+from preprocessing_classificator import preprocess_data,  classify_text
 
 # Настройки бота aiogram
-bot_token = 'токен'
+bot_token = '7466597015:AAGz2jDO8yfk4rE8nPgi0Koo6XKCEpwSgsc'
 bot = Bot(token=bot_token)
 dp = Dispatcher(bot)
 
@@ -67,8 +67,7 @@ async def handle_period(message: types.Message):
         if os.path.exists('output.csv'):
             df = pd.read_csv('output.csv')
             df = preprocess_data(df)
-            classifier = init_classifier()
-            classified_df = classify_text(df, classifier)
+            classified_df = classify_text(df)
 
             # Сохранение данных с классификацией
             classified_df.to_csv('output.csv', index=False)
