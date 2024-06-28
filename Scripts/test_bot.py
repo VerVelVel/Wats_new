@@ -4,8 +4,9 @@ import asyncio
 import os
 from aiogram.utils import executor
 import pandas as pd
-from parser_1 import parse_channels  # Импортируем функцию из parser.py
+from parser_1 import parse_channels 
 from preprocessing_classificator import preprocess_data,  classify_text
+# from preprocessing_classificator import init_classifier
 
 # Настройки бота aiogram
 bot_token = ''
@@ -78,6 +79,26 @@ async def handle_period(message: types.Message):
         await message.answer("Парсинг завершен. Нет данных для сохранения.")
     
     user_data.pop(message.from_user.id, None)  # Очистка данных пользователя
+
+    # if success:
+    #     await message.answer("Парсинг завершен. Начинаем классификацию...")
+
+    #     # Классификация
+    #     if os.path.exists('output.csv'):
+    #         df = pd.read_csv('output.csv')
+    #         df = preprocess_data(df)
+    #         classifier = init_classifier()
+    #         classified_df = classify_text(df, classifier)
+
+    #         # Сохранение данных с классификацией
+    #         classified_df.to_csv('output.csv', index=False)
+    #         await message.answer("Классификация завершена. Данные сохранены в файле output.csv.")
+    #     else:
+    #         await message.answer("Ошибка: файл output.csv не найден.")
+    # else:
+    #     await message.answer("Парсинг завершен. Нет данных для сохранения.")
+    
+    # user_data.pop(message.from_user.id, None)  # Очистка данных пользователя
 
 
 

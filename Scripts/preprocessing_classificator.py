@@ -9,6 +9,7 @@ from datasets import Dataset
 from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 import requests
+import time
 
 # Загрузка данных и предобработка
 def preprocess_data(df):
@@ -30,10 +31,59 @@ def preprocess_data(df):
         return text
 
     df.loc[:, 'clean_text'] = df['Content'].apply(preprocess_text)
-    df.loc[:, 'message_channel'] = df['clean_text'] + ' ' + df['Source']
+    df['message_channel'] = df['clean_text'] + ' ' + df['Source'].copy()
     return df
 
-# Инициализация модели для zero-shot классификации с кэшированием
+
+API_URL = "https://api-inference.huggingface.co/models/MoritzLaurer/deberta-v3-large-zeroshot-v2.0"
+headers = {"Authorization": "Bearer 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"}
+
+def query(payload, max_retries=3, retry_delay=5):
+    retries = 0
+    while retries < max_retries:
+        try:
+            response = requests.post(API_URL, headers=headers, json=payload)
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"Request failed with status code {response.status_code}. Retrying...")
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed: {str(e)}. Retrying...")
+        
+        retries += 1
+        time.sleep(retry_delay)
+    
+    return {"error": f"Failed to get response after {max_retries} retries"}
+
+
+def classify_text(df):
+    candidate_labels = ["технологии", "политика", "спорт", "экономика", "развлечения", "здоровье", "образование", "мода", "происшествия"]
+
+    def classify_row(row):
+        payload = {
+            "inputs": row['message_channel'],
+            "parameters": {"candidate_labels": candidate_labels}
+        }
+        result = query(payload)
+
+        if 'scores' not in result:
+            print("Result without scores:", result)
+            return "error"
+
+        highest_score_index = result['scores'].index(max(result['scores']))
+        most_likely_label = result['labels'][highest_score_index]
+        return most_likely_label
+
+    with ThreadPoolExecutor() as executor:
+        results = []
+        for result in executor.map(classify_row, df.to_dict('records')):
+            results.append(result)
+            time.sleep(1)  # Добавление задержки в 1 секунду между запросами
+        df['Category'] = results
+
+    return df
+
+# # Инициализация модели для zero-shot классификации с кэшированием
 # @lru_cache(maxsize=1)
 # def init_classifier():
 #     # Проверка доступности CUDA до инициализации модели
@@ -43,29 +93,17 @@ def preprocess_data(df):
 #     classifier = pipeline("zero-shot-classification", model="MoritzLaurer/deberta-v3-large-zeroshot-v2.0", device=device)
 #     return classifier
 
-
-API_URL = "https://api-inference.huggingface.co/models/MoritzLaurer/deberta-v3-large-zeroshot-v2.0"
-headers = {"Authorization": "Bearer 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"}
-
-def query(payload):
-	response = requests.post(API_URL, headers=headers, json=payload)
-	return response.json()
-
-def classify_text(df, classifier):
-    candidate_labels = ["технологии", "политика", "спорт", "экономика", "развлечения", "здоровье", "образование", "мода", "происшествия"]
-
-    def classify_row(row):
-        payload = {
-            "inputs": row['message_channel'],
-            "parameters": {"candidate_labels": candidate_labels}
-        }
-        result = query(payload)
-        highest_score_index = result['scores'].index(max(result['scores']))
-        most_likely_label = result['labels'][highest_score_index]
-        return most_likely_label
+# # Функция для классификации текста
+# def classify_text(df, classifier):
+#     candidate_labels = ["технологии", "политика", "спорт", "экономика", "развлечения", "здоровье", "образование", "мода", "происшествия"]
     
-    with ThreadPoolExecutor() as executor:
-        df['Category'] = list(executor.map(classify_row, df.to_dict('records')))
+#     def classify_row(row):
+#         result = classifier(row['message_channel'], candidate_labels)
+#         highest_score_index = result['scores'].index(max(result['scores']))
+#         most_likely_label = result['labels'][highest_score_index]
+#         return most_likely_label
+
+#     with ThreadPoolExecutor() as executor:
+#         df['Category'] = list(executor.map(classify_row, df.to_dict('records')))
 
     return df
-
