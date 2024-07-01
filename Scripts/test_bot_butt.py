@@ -7,11 +7,11 @@ import os
 from aiogram.utils import executor
 import pandas as pd
 from parser_1 import parse_channels 
-from preprocessing_classificator import preprocess_data, classify_text, init_classifier
-# from preprocessing_classificator import preprocess_data, classify_text_async
+# from preprocessing_classificator import preprocess_data, classify_text
+from preprocessing_classificator import preprocess_data, classify_text_async
 
 # Настройки бота aiogram
-bot_token = '7466597015:AAEsbquKsmzi6Sr_YtNv3SCkeM3uukm1FT4'
+bot_token = ''
 bot = Bot(token=bot_token)
 dp = Dispatcher(bot)
 
@@ -108,6 +108,7 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
     success = await parse_channels(links, period_days=period_days, specific_date=specific_date)
     logger.info(f"Результат парсинга для пользователя {user_id}: {'успех' if success else 'неудача'}")
 
+#Только для API - aсинхронно
     if success:
         await message.answer("Парсинг завершен. Начинаем классификацию...")
 
@@ -117,11 +118,10 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
         if os.path.exists(filepath):
             df = pd.read_csv(filepath)
             df = preprocess_data(df)
-            classifier = init_classifier()
-            df = classify_text(df, classifier)
+            classified_df = await classify_text_async(df)  # Используем асинхронную классификацию
 
             # Сохранение данных с классификацией
-            df.to_csv(filepath, index=False)
+            classified_df.to_csv(filepath, index=False)
             await message.answer(f"Классификация завершена. Данные сохранены в файле {filepath}.")
             logger.info(f"Классификация завершена. Данные сохранены в файле {filepath}.")
         else:
@@ -129,9 +129,58 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
             logger.error(f"Ошибка: файл {filepath} не найден.")
     else:
         await message.answer("Парсинг завершен. Нет данных для сохранения.")
-        logger.info("Парсинг завершен. Нет данных для сохранения.")
 
-    user_data.pop(user_id, None)  # Очистка данных пользователя
+        logger.info("Парсинг завершен. Нет данных для сохранения.")
+    user_data.pop(message.from_user.id, None)  # Очистка данных пользователя
+
+#Только для API - синхронно
+    # if success:
+    #     await message.answer("Парсинг завершен. Начинаем классификацию...")
+
+    #     # Классификация
+    #     scripts_dir = os.path.dirname(os.path.abspath(__file__))  # Получаем текущую директорию скрипта
+    #     filepath = os.path.join(scripts_dir, 'output.csv')
+    #     if os.path.exists(filepath):
+    #         df = pd.read_csv(filepath)
+    #         df = preprocess_data(df)
+    #         classified_df = classify_text_async(df)
+
+    #         # Сохранение данных с классификацией
+    #         classified_df.to_csv(filepath, index=False)
+    #         await message.answer("Классификация завершена. Данные сохранены в файле output.csv.")
+    #     else:
+    #         await message.answer("Ошибка: файл output.csv не найден.")
+    # else:
+    #     await message.answer("Парсинг завершен. Нет данных для сохранения.")
+    
+    # user_data.pop(message.from_user.id, None)  # Очистка данных пользователя
+
+###Только для локальной модели
+    # if success:
+    #     await message.answer("Парсинг завершен. Начинаем классификацию...")
+
+    #     # Классификация
+    #     scripts_dir = os.path.dirname(os.path.abspath(__file__))  # Получаем текущую директорию скрипта
+    #     filepath = os.path.join(scripts_dir, 'output.csv')
+    #     if os.path.exists(filepath):
+    #         df = pd.read_csv(filepath)
+    #         df = preprocess_data(df)
+    #         classifier = init_classifier()
+    #         df = classify_text(df, classifier)
+
+    #         # Сохранение данных с классификацией
+    #         df.to_csv(filepath, index=False)
+    #         await message.answer(f"Классификация завершена. Данные сохранены в файле {filepath}.")
+    #         logger.info(f"Классификация завершена. Данные сохранены в файле {filepath}.")
+    #     else:
+    #         await message.answer(f"Ошибка: файл {filepath} не найден.")
+    #         logger.error(f"Ошибка: файл {filepath} не найден.")
+    # else:
+    #     await message.answer("Парсинг завершен. Нет данных для сохранения.")
+    #     logger.info("Парсинг завершен. Нет данных для сохранения.")
+
+    # user_data.pop(user_id, None)  # Очистка данных пользователя
+
 
 # Запуск бота
 if __name__ == '__main__':
