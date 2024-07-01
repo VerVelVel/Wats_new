@@ -36,7 +36,7 @@ def preprocess_data(df):
 
 
 API_URL = "https://api-inference.huggingface.co/models/MoritzLaurer/deberta-v3-large-zeroshot-v2.0"
-headers = {"Authorization": ""}
+headers = {"Authorization": "Bearer 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"}
 
 def query(payload, max_retries=3, retry_delay=5):
     retries = 0
@@ -57,7 +57,7 @@ def query(payload, max_retries=3, retry_delay=5):
 
 
 def classify_text(df):
-    candidate_labels = ["технологии", "политика", "спорт", "экономика", "развлечения", "здоровье", "образование", "мода", "происшествия"]
+    candidate_labels = ["технологии", "политика", "спорт", "экономика", "развлечения", "здоровье", "образование", "мода", "инциденты и катастрофы"]
 
     def classify_row(row):
         payload = {
