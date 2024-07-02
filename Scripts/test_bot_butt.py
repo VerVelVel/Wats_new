@@ -7,11 +7,13 @@ import os
 from aiogram.utils import executor
 import pandas as pd
 from parser_1 import parse_channels 
-# from preprocessing_classificator import preprocess_data, classify_text
-from preprocessing_classificator import preprocess_data, classify_text_async
+from preprocessing_classificator import preprocess_data, classify_text, init_models_async, most_common_meaningful_text
+from aiogram.utils.exceptions import BotBlocked
+
+# from preprocessing_classificator import preprocess_data, classify_text_async
 
 # Настройки бота aiogram
-bot_token = ''
+bot_token = '6830172161:AAGK8M_DW5-vZIqMLLx2uIyvyfspf_FEW7w'
 bot = Bot(token=bot_token)
 dp = Dispatcher(bot)
 
@@ -31,11 +33,20 @@ period_keyboard = types.ReplyKeyboardMarkup(keyboard=[[types.KeyboardButton(text
 period_options_keyboard = types.ReplyKeyboardMarkup(keyboard=[[types.KeyboardButton(text="1 день")],
                                                               [types.KeyboardButton(text="3 дня")], [types.KeyboardButton(text="Назад")]], resize_keyboard=True)
 
+#Генерация клавияатуры для категорий
+def generate_category_keyboard(categories):
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    for category in categories:
+        keyboard.add(types.KeyboardButton(category))
+    return keyboard
+
 # Состояния для FSM
 class ParseStates:
     WAITING_FOR_LINKS = 1
     WAITING_FOR_PERIOD = 2
     WAITING_FOR_DATE = 3
+    CHOOSING_CATEGORY = 4
+    SHOWING_NEWS = 5
 
 # Переменная для хранения данных пользователя
 user_data = {}
@@ -105,10 +116,16 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
 
     await message.answer("Начинаем парсинг...", reply_markup=types.ReplyKeyboardRemove())
     logger.info(f"Начинаем парсинг для пользователя {user_id} с периодом {period_days} дней и ссылками: {links}")
-    success = await parse_channels(links, period_days=period_days, specific_date=specific_date)
-    logger.info(f"Результат парсинга для пользователя {user_id}: {'успех' if success else 'неудача'}")
+    
+    # Инициализация моделей и парсинг параллельно
+    parsing_task = asyncio.create_task(parse_channels(links, period_days=period_days, specific_date=specific_date))
+    init_models_task = asyncio.create_task(init_models_async())
 
-#Только для API - aсинхронно
+    # Ожидание завершения задач
+    success = await parsing_task
+    classifier, ranking_model = await init_models_task
+
+##Только для локальной модели
     if success:
         await message.answer("Парсинг завершен. Начинаем классификацию...")
 
@@ -118,20 +135,88 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
         if os.path.exists(filepath):
             df = pd.read_csv(filepath)
             df = preprocess_data(df)
-            classified_df = await classify_text_async(df)  # Используем асинхронную классификацию
-
+            df = classify_text(df, classifier)
+           
             # Сохранение данных с классификацией
-            classified_df.to_csv(filepath, index=False)
+            df.to_csv(filepath, index=False)
             await message.answer(f"Классификация завершена. Данные сохранены в файле {filepath}.")
             logger.info(f"Классификация завершена. Данные сохранены в файле {filepath}.")
+
+            # Ранжирование
+            ranked_df = most_common_meaningful_text(df, 'Category', 'clean_text', 'Content', ranking_model)
+            # Сохранение данных с ранжированием
+            ranked_df.to_csv(os.path.join(scripts_dir, 'ranked_output.csv'), index=False)
+            await message.answer(f"Ранжирование завершено. Данные сохранены в файле {filepath}.")
+            logger.info(f"Ранжирование завершено. Данные сохранены в файле {filepath}.")
+
+            # Отправка кнопок с категориями пользователю
+            await message.answer("Выберите категорию новостей:", reply_markup=generate_category_keyboard(df['Category'].unique()))
+            user_data[user_id]['state'] = ParseStates.CHOOSING_CATEGORY
+
         else:
             await message.answer(f"Ошибка: файл {filepath} не найден.")
             logger.error(f"Ошибка: файл {filepath} не найден.")
     else:
         await message.answer("Парсинг завершен. Нет данных для сохранения.")
-
         logger.info("Парсинг завершен. Нет данных для сохранения.")
-    user_data.pop(message.from_user.id, None)  # Очистка данных пользователя
+
+
+@dp.message_handler(lambda message: user_data.get(message.from_user.id, {}).get('state') == ParseStates.CHOOSING_CATEGORY)
+async def choose_category(message: types.Message):
+    user_id = message.from_user.id
+    chosen_category = message.text
+
+    # Проверяем, что категория существует
+    scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    ranked_filepath = os.path.join(scripts_dir, 'ranked_output.csv')
+    if os.path.exists(ranked_filepath):
+        most_common_meaningful_df = pd.read_csv(ranked_filepath)
+        if chosen_category in most_common_meaningful_df['category'].values:
+            news_text = most_common_meaningful_df[most_common_meaningful_df['category'] == chosen_category]['most_common_text'].values[0]
+            await message.answer(f"Наиболее значимая новость в категории '{chosen_category}':\n\n{news_text}")
+            await ParseStates.SHOWING_NEWS.set()
+            user_data.pop(user_id, None)  # Очистка данных пользователя после завершения процесса
+        else:
+            await message.answer(f"Категория '{chosen_category}' не найдена. Попробуйте снова.")
+    else:
+        await message.answer(f"Ошибка: файл {ranked_filepath} не найден.")
+        logger.error(f"Ошибка: файл {ranked_filepath} не найден.")
+
+
+
+# Запуск бота
+if __name__ == '__main__':
+    logger.info("Телеграм клиент запущен")
+    executor.start_polling(dp, skip_updates=True)
+    logger.info("Бот запущен")
+
+
+
+
+# #Только для API - aсинхронно
+#     if success:
+#         await message.answer("Парсинг завершен. Начинаем классификацию...")
+
+#         # Классификация
+#         scripts_dir = os.path.dirname(os.path.abspath(__file__))  # Получаем текущую директорию скрипта
+#         filepath = os.path.join(scripts_dir, 'output.csv')
+#         if os.path.exists(filepath):
+#             df = pd.read_csv(filepath)
+#             df = preprocess_data(df)
+#             classified_df = await classify_text_async(df)  # Используем асинхронную классификацию
+
+#             # Сохранение данных с классификацией
+#             classified_df.to_csv(filepath, index=False)
+#             await message.answer(f"Классификация завершена. Данные сохранены в файле {filepath}.")
+#             logger.info(f"Классификация завершена. Данные сохранены в файле {filepath}.")
+#         else:
+#             await message.answer(f"Ошибка: файл {filepath} не найден.")
+#             logger.error(f"Ошибка: файл {filepath} не найден.")
+#     else:
+#         await message.answer("Парсинг завершен. Нет данных для сохранения.")
+
+#         logger.info("Парсинг завершен. Нет данных для сохранения.")
+#     user_data.pop(message.from_user.id, None)  # Очистка данных пользователя
 
 #Только для API - синхронно
     # if success:
@@ -154,39 +239,3 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
     #     await message.answer("Парсинг завершен. Нет данных для сохранения.")
     
     # user_data.pop(message.from_user.id, None)  # Очистка данных пользователя
-
-###Только для локальной модели
-    # if success:
-    #     await message.answer("Парсинг завершен. Начинаем классификацию...")
-
-    #     # Классификация
-    #     scripts_dir = os.path.dirname(os.path.abspath(__file__))  # Получаем текущую директорию скрипта
-    #     filepath = os.path.join(scripts_dir, 'output.csv')
-    #     if os.path.exists(filepath):
-    #         df = pd.read_csv(filepath)
-    #         df = preprocess_data(df)
-    #         classifier = init_classifier()
-    #         df = classify_text(df, classifier)
-
-    #         # Сохранение данных с классификацией
-    #         df.to_csv(filepath, index=False)
-    #         await message.answer(f"Классификация завершена. Данные сохранены в файле {filepath}.")
-    #         logger.info(f"Классификация завершена. Данные сохранены в файле {filepath}.")
-    #     else:
-    #         await message.answer(f"Ошибка: файл {filepath} не найден.")
-    #         logger.error(f"Ошибка: файл {filepath} не найден.")
-    # else:
-    #     await message.answer("Парсинг завершен. Нет данных для сохранения.")
-    #     logger.info("Парсинг завершен. Нет данных для сохранения.")
-
-    # user_data.pop(user_id, None)  # Очистка данных пользователя
-
-
-# Запуск бота
-if __name__ == '__main__':
-    logger.info("Телеграм клиент запущен")
-    executor.start_polling(dp, skip_updates=True)
-    logger.info("Бот запущен")
-#Выбор из имеющихся категорий
-# await message.answer("Выберите категорию новостей:", reply_markup=generate_category_keyboard(classified_df['category'].unique()))
-#             user_data[user_id]['state'] = ParseStates.CHOOSING_CATEGORY
