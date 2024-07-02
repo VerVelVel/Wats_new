@@ -33,20 +33,24 @@ period_keyboard = types.ReplyKeyboardMarkup(keyboard=[[types.KeyboardButton(text
 period_options_keyboard = types.ReplyKeyboardMarkup(keyboard=[[types.KeyboardButton(text="1 день")],
                                                               [types.KeyboardButton(text="3 дня")], [types.KeyboardButton(text="Назад")]], resize_keyboard=True)
 
-#Генерация клавияатуры для категорий
 def generate_category_keyboard(categories):
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
     for category in categories:
         keyboard.add(types.KeyboardButton(category))
     return keyboard
 
+# Генерация клавиатуры для выбора действия после парсинга
+action_keyboard = types.ReplyKeyboardMarkup(keyboard=[[types.KeyboardButton(text="Показать саммари")],
+                                                      [types.KeyboardButton(text="Вывести главные новости")]], resize_keyboard=True)
+
 # Состояния для FSM
 class ParseStates:
     WAITING_FOR_LINKS = 1
     WAITING_FOR_PERIOD = 2
     WAITING_FOR_DATE = 3
-    CHOOSING_CATEGORY = 4
-    SHOWING_NEWS = 5
+    CHOOSING_ACTION = 4
+    CHOOSING_CATEGORY = 5
+    SHOWING_NEWS = 6
 
 # Переменная для хранения данных пользователя
 user_data = {}
@@ -108,7 +112,6 @@ async def handle_date(message: types.Message):
     
     links = user_data[user_id]['links'].split(',')
     await start_parsing(message, links, specific_date=specific_date)
-    # user_data[user_id]['state'] = None  # Очищаем состояние после парсинга
     logger.info(f"Парсинг завершен для пользователя {user_id}")
 
 async def start_parsing(message: types.Message, links: list, period_days=None, specific_date=None):
@@ -125,7 +128,6 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
     success = await parsing_task
     classifier, ranking_model = await init_models_task
 
-##Только для локальной модели
     if success:
         await message.answer("Парсинг завершен. Начинаем классификацию...")
 
@@ -146,12 +148,12 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
             ranked_df = most_common_meaningful_text(df, 'Category', 'clean_text', 'Content', ranking_model)
             # Сохранение данных с ранжированием
             ranked_df.to_csv(os.path.join(scripts_dir, 'ranked_output.csv'), index=False)
-            await message.answer(f"Ранжирование завершено. Данные сохранены в файле {filepath}.")
-            logger.info(f"Ранжирование завершено. Данные сохранены в файле {filepath}.")
+            await message.answer(f"Ранжирование завершено. Данные сохранены в файле ranked_output.csv.")
+            logger.info(f"Ранжирование завершено. Данные сохранены в файле ranked_output.csv.")
 
-            # Отправка кнопок с категориями пользователю
-            await message.answer("Выберите категорию новостей:", reply_markup=generate_category_keyboard(df['Category'].unique()))
-            user_data[user_id]['state'] = ParseStates.CHOOSING_CATEGORY
+            # Показ кнопок для выбора действия
+            await message.answer("Что вы хотите сделать дальше?", reply_markup=action_keyboard)
+            user_data[user_id]['state'] = ParseStates.CHOOSING_ACTION
 
         else:
             await message.answer(f"Ошибка: файл {filepath} не найден.")
@@ -160,7 +162,26 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
         await message.answer("Парсинг завершен. Нет данных для сохранения.")
         logger.info("Парсинг завершен. Нет данных для сохранения.")
 
+# Обработка выбора действия после парсинга
+@dp.message_handler(lambda message: user_data.get(message.from_user.id, {}).get('state') == ParseStates.CHOOSING_ACTION)
+async def handle_action_choice(message: types.Message):
+    user_id = message.from_user.id
+    if message.text == "Показать саммари":
+        # Показать саммари (реализуйте логику саммари здесь)
+        await message.answer("Саммари пока не реализовано.")
+    elif message.text == "Вывести главные новости":
+        # Показать категории и новости
+        scripts_dir = os.path.dirname(os.path.abspath(__file__))
+        ranked_filepath = os.path.join(scripts_dir, 'ranked_output.csv')
+        if os.path.exists(ranked_filepath):
+            ranked_df = pd.read_csv(ranked_filepath)
+            await message.answer("Выберите категорию новостей:", reply_markup=generate_category_keyboard(ranked_df['Category'].unique()))
+            user_data[user_id]['state'] = ParseStates.CHOOSING_CATEGORY
+        else:
+            await message.answer(f"Ошибка: файл {ranked_filepath} не найден.")
+            logger.error(f"Ошибка: файл {ranked_filepath} не найден.")
 
+# Обработка выбора категории
 @dp.message_handler(lambda message: user_data.get(message.from_user.id, {}).get('state') == ParseStates.CHOOSING_CATEGORY)
 async def choose_category(message: types.Message):
     user_id = message.from_user.id
@@ -171,10 +192,9 @@ async def choose_category(message: types.Message):
     ranked_filepath = os.path.join(scripts_dir, 'ranked_output.csv')
     if os.path.exists(ranked_filepath):
         most_common_meaningful_df = pd.read_csv(ranked_filepath)
-        if chosen_category in most_common_meaningful_df['category'].values:
-            news_text = most_common_meaningful_df[most_common_meaningful_df['category'] == chosen_category]['most_common_text'].values[0]
+        if chosen_category in most_common_meaningful_df['Category'].values:
+            news_text = most_common_meaningful_df[most_common_meaningful_df['Category'] == chosen_category]['most_common_text'].values[0]
             await message.answer(f"Наиболее значимая новость в категории '{chosen_category}':\n\n{news_text}")
-            await ParseStates.SHOWING_NEWS.set()
             user_data.pop(user_id, None)  # Очистка данных пользователя после завершения процесса
         else:
             await message.answer(f"Категория '{chosen_category}' не найдена. Попробуйте снова.")
@@ -182,14 +202,10 @@ async def choose_category(message: types.Message):
         await message.answer(f"Ошибка: файл {ranked_filepath} не найден.")
         logger.error(f"Ошибка: файл {ranked_filepath} не найден.")
 
-
-
 # Запуск бота
-if __name__ == '__main__':
-    logger.info("Телеграм клиент запущен")
+if __name__ == "__main__":
+    from aiogram import executor
     executor.start_polling(dp, skip_updates=True)
-    logger.info("Бот запущен")
-
 
 
 
