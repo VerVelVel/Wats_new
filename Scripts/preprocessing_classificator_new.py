@@ -1,21 +1,14 @@
 import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline, AutoModelForSeq2SeqLM
-import pickle
+from transformers import AutoTokenizer, pipeline, AutoModelForSeq2SeqLM
 import pandas as pd
 import re
 import string
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
-from torch.nn.functional import softmax
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import os
 from functools import lru_cache
 import time
-import aiohttp
-import requests
 import asyncio
-import math
-from tenacity import retry, stop_after_attempt, wait_exponential
 from sentence_transformers import SentenceTransformer, util
 
 # Предобработка текста
@@ -167,19 +160,27 @@ def generate_summary(text):
     out = out.replace("<s>", "").replace("</s>", "").replace("<pad>", "").replace("<extra_id_0>", "").strip()
     return out
 
+MAX_ARTICLES_PER_CATEGORY = 10  # Максимальное количество статей для саммаризации в каждой категории
+
 # Асинхронная функция для генерации саммари
 async def generate_summaries(df):
     loop = asyncio.get_event_loop()
     start_sum_time = time.time()
+    selected_indices = []
+    categories = df['Category'].unique()
+    for category in categories:
+        # Фильтруем данные по текущей категории и ограничиваем количество строк
+        category_indices = df[df['Category'] == category].head(MAX_ARTICLES_PER_CATEGORY).index
+        selected_indices.extend(category_indices)
+    
+    # Используем отобранные индексы для создания нового DataFrame с ограниченными данными
+    filtered_df = df.loc[selected_indices]
     with ThreadPoolExecutor() as executor:
-        summaries = await asyncio.gather(*[loop.run_in_executor(executor, generate_summary, text) for text in df['Content']])
-    df['summary'] = summaries
+        summaries = await asyncio.gather(*[loop.run_in_executor(executor, generate_summary, text) for text in filtered_df['Content']])
+    filtered_df['summary'] = summaries
     end_sum_time = time.time()
     print(f"TIME Summarization took {end_sum_time - start_sum_time} seconds")
-    return df
-
-
-
+    return filtered_df
 
 
 # API_URL = "https://api-inference.huggingface.co/models/MoritzLaurer/deberta-v3-large-zeroshot-v2.0"

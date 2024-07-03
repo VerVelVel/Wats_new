@@ -33,12 +33,22 @@ period_keyboard = types.ReplyKeyboardMarkup(keyboard=[[types.KeyboardButton(text
 period_options_keyboard = types.ReplyKeyboardMarkup(keyboard=[[types.KeyboardButton(text="1 день")],
                                                               [types.KeyboardButton(text="3 дня")], [types.KeyboardButton(text="Назад")]], resize_keyboard=True)
 
-#Генерация клавиатуры для категорий
+# Генерация клавиатуры для категорий
 def generate_category_keyboard(categories):
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
     for category in categories:
         keyboard.add(types.KeyboardButton(category))
+    keyboard.add(types.KeyboardButton(text="К вводу каналов"))
     return keyboard
+
+
+# Генерация клавиатуры для выбора действия после выбора категории
+action_keyboard = types.ReplyKeyboardMarkup(keyboard=[
+    [types.KeyboardButton(text="Показать саммари")],
+    [types.KeyboardButton(text="Вывести тренды")], 
+    [types.KeyboardButton(text="К выбору категории")]
+], resize_keyboard=True)
+
 
 # Состояния для FSM
 class ParseStates:
@@ -46,7 +56,8 @@ class ParseStates:
     WAITING_FOR_PERIOD = 2
     WAITING_FOR_DATE = 3
     CHOOSING_CATEGORY = 4
-    SHOWING_NEWS = 5
+    CHOOSING_ACTION = 5
+    SHOWING_NEWS = 6
 
 # Переменная для хранения данных пользователя
 user_data = {}
@@ -132,13 +143,13 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
         # Классификация
         scripts_dir = os.path.dirname(os.path.abspath(__file__))  # Получаем текущую директорию скрипта
         filepath = os.path.join(scripts_dir, 'output.csv')
-        classified_filepath = os.path.join(scripts_dir, 'classified_output.csv')
+        classified_filepath = os.path.join(scripts_dir, 'classified_output.csv')  
         ranked_filepath = os.path.join(scripts_dir, 'ranked_output.csv')
         summary_filepath = os.path.join(scripts_dir, 'summary_output.csv')
 
         if os.path.exists(classified_filepath):
             df = pd.read_csv(classified_filepath)
-            await message.answer(f"Классификация уже выполнена ранее. Данные загружены из файла {classified_filepath}.")
+            await message.answer(f"Классификация уже выполнена ранее. Данные загружены из файла.")
             logger.info(f"Классификация уже выполнена ранее. Данные загружены из файла {classified_filepath}.")
         else:
             if os.path.exists(filepath):
@@ -147,24 +158,24 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
                 df = classify_text(df, classifier)
 
                 # Сохранение данных с классификацией
-                df.to_csv(classified_filepath, index=False)
-                await message.answer(f"Классификация завершена. Данные сохранены в файле {classified_filepath}.")
-                logger.info(f"Классификация завершена. Данные сохранены в файле {classified_filepath}.")
+                df.to_csv(filepath, index=False)   #Заменить обратно на filepath
+                await message.answer(f"Классификация завершена. Данные сохранены.")
+                logger.info(f"Классификация завершена. Данные сохранены в файле {filepath}.")
             else:
                 await message.answer(f"Ошибка: файл {filepath} не найден.")
                 logger.error(f"Ошибка: файл {filepath} не найден.")
                 return
 
-        # Ранжирование и суммаризация параллельно
+        # Ранжирование и саммаризация параллельно
         ranking_task = most_common_meaningful_text_async(df, 'Category', 'clean_text', 'Content', ranking_model)
         summary_task = generate_summaries(df)
         ranked_df, summary_df = await asyncio.gather(ranking_task, summary_task)
         
-        # Сохранение данных с ранжированием и суммаризацией
-        ranked_df.to_csv(os.path.join(scripts_dir, 'ranked_output.csv'), index=False)
-        summary_df.to_csv(os.path.join(scripts_dir, 'summary_output.csv'), index=False)
+        # Сохранение данных с ранжированием и саммаризацией
+        ranked_df.to_csv(ranked_filepath, index=False)
+        summary_df.to_csv(summary_filepath, index=False)
         
-        await message.answer(f"Ранжирование и суммаризация завершены. Данные сохранены в файле {filepath}.")
+        await message.answer(f"Ранжирование и саммаризация завершены. Данные сохранены в файле {filepath}.")
         logger.info(f"Ранжирование и суммаризация завершены. Данные сохранены в файле {filepath}.")
 
         # Отправка кнопок с категориями пользователю
@@ -175,30 +186,88 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
         await message.answer("Парсинг завершен. Нет данных для сохранения.")
         logger.info("Парсинг завершен. Нет данных для сохранения.")
 
+# Обработка выбора категории
 @dp.message_handler(lambda message: user_data.get(message.from_user.id, {}).get('state') == ParseStates.CHOOSING_CATEGORY)
 async def choose_category(message: types.Message):
     user_id = message.from_user.id
     chosen_category = message.text
 
-    # Проверяем, что категория существует
-    scripts_dir = os.path.dirname(os.path.abspath(__file__))
-    ranked_filepath = os.path.join(scripts_dir, 'ranked_output.csv')
-    summary_filepath = os.path.join(scripts_dir, 'summary_output.csv') # Добавлено
-    if os.path.exists(ranked_filepath):
-        most_common_meaningful_df = pd.read_csv(ranked_filepath)
-        summary_df = pd.read_csv(summary_filepath) # Добавлено
-        if chosen_category in most_common_meaningful_df['category'].values:
-            news_text = most_common_meaningful_df[most_common_meaningful_df['category'] == chosen_category]['most_common_text'].values[0]
-            summary_text = summary_df[summary_df['Category'] == chosen_category]['summary'].values[0] # Добавлено
-            await message.answer(f"Наиболее значимая новость в категории '{chosen_category}':\n\n{news_text}\n\nСаммари:\n{summary_text}") # Изменено
-            await ParseStates.SHOWING_NEWS.set()
-            user_data.pop(user_id, None)  # Очистка данных пользователя после завершения процесса
-        else:
-            await message.answer(f"Категория '{chosen_category}' не найдена. Попробуйте снова.")
-    else:
-        await message.answer(f"Ошибка: файл {ranked_filepath} не найден.")
-        logger.error(f"Ошибка: файл {ranked_filepath} не найден.")
+    if chosen_category == "К вводу каналов":
+        user_data[user_id]['state'] = ParseStates.WAITING_FOR_LINKS
+        await message.answer("Введите ссылки на Telegram-каналы, новости из которых вы хотите узнать, разделенные запятой:",
+                             reply_markup=types.ReplyKeyboardRemove())
+    else:    
+        # Проверяем, что категория существует
+        scripts_dir = os.path.dirname(os.path.abspath(__file__))
+        ranked_filepath = os.path.join(scripts_dir, 'ranked_output.csv')
+        summary_filepath = os.path.join(scripts_dir, 'summary_output.csv')
 
+        if os.path.exists(ranked_filepath) and os.path.exists(summary_filepath):
+            most_common_meaningful_df = pd.read_csv(ranked_filepath)
+            summary_df = pd.read_csv(summary_filepath)
+
+            if chosen_category in most_common_meaningful_df['category'].values:
+                await message.answer(f"Категория '{chosen_category}' выбрана. Что вы хотите сделать дальше?", reply_markup=action_keyboard)
+                user_data[user_id]['chosen_category'] = chosen_category
+                user_data[user_id]['state'] = ParseStates.CHOOSING_ACTION
+            else:
+                await message.answer(f"Категория '{chosen_category}' не найдена. Попробуйте снова.")
+        else:
+            await message.answer(f"Ошибка: файлы {ranked_filepath} или {summary_filepath} не найдены.")
+            logger.error(f"Ошибка: файлы {ranked_filepath} или {summary_filepath} не найдены.")
+
+# Обработка выбора действия после выбора категории
+@dp.message_handler(lambda message: user_data.get(message.from_user.id, {}).get('state') == ParseStates.CHOOSING_ACTION)
+async def handle_action_choice(message: types.Message):
+    user_id = message.from_user.id
+    chosen_action = message.text.lower()
+    scripts_dir = os.path.dirname(os.path.abspath(__file__))
+
+    chosen_category = user_data.get(user_id, {}).get('chosen_category', None)
+
+    if chosen_action == "показать саммари":
+        summary_df = pd.read_csv(os.path.join(scripts_dir, 'summary_output.csv'))
+
+        # Фильтруем DataFrame по выбранной категории
+        summaries = summary_df[summary_df['Category'] == chosen_category]
+
+        # Собираем все суммаризированные тексты и ссылки в одно сообщение
+        response_message = ""
+        for index, row in summaries.iterrows():
+            summary_text = row['summary']
+            original_url = row['URL']
+
+            # Добавляем суммари и ссылку в сообщение
+        #     response_message += f"Саммари:\n{summary_text}\n\nСсылка на пост: {original_url}\n\n"
+        # await message.answer(response_message)
+            response_message += f"**Саммари**:\n{summary_text}\n\nСсылка на пост: {original_url}\n\n"
+        await message.answer(response_message, parse_mode='Markdown')
+
+
+        # После показа саммари возвращаем пользователя к выбору действия
+        await message.answer("Что вы хотите сделать дальше?", reply_markup=action_keyboard)
+        user_data[user_id]['state'] = ParseStates.CHOOSING_ACTION
+
+    elif chosen_action == "вывести тренды":
+        ranked_df = pd.read_csv(os.path.join(scripts_dir, 'ranked_output.csv'))
+        news_text = ranked_df[ranked_df['category'] == chosen_category]['most_common_text'].values[0]
+        await message.answer(f"Наиболее значимая новость в категории '{chosen_category}':\n\n{news_text}")
+
+        # После показа трендов также возвращаем пользователя к выбору действия
+        await message.answer("Что вы хотите сделать дальше?", reply_markup=action_keyboard)
+        user_data[user_id]['state'] = ParseStates.CHOOSING_ACTION
+
+    elif chosen_action == "к выбору категории":
+        # Отправка кнопок с категориями пользователю
+        user_data[user_id]['state'] = ParseStates.CHOOSING_CATEGORY
+        df = pd.read_csv(os.path.join(scripts_dir, 'ranked_output.csv')) 
+        await message.answer("Выберите категорию новостей:", reply_markup=generate_category_keyboard(df['category'].unique()))
+        user_data[user_id]['state'] = ParseStates.CHOOSING_CATEGORY
+
+    else:
+        await message.answer("Извините, я не понял вашего выбора. Пожалуйста, выберите действие из списка.")
+
+    
 # Запуск бота
 if __name__ == "__main__":
     from aiogram import executor
