@@ -3,6 +3,7 @@ from transformers import AutoTokenizer, pipeline, AutoModelForSeq2SeqLM
 import pandas as pd
 import re
 import string
+import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,6 +11,21 @@ from functools import lru_cache
 import time
 import asyncio
 from sentence_transformers import SentenceTransformer, util
+
+# Проверка и загрузка ресурсов
+def download_nltk_resources():
+    try:
+        stopwords.words('english')
+    except LookupError:
+        nltk.download('stopwords')
+    
+    try:
+        nltk.data.find('corpora/wordnet.zip')
+    except LookupError:
+        nltk.download('wordnet')
+
+# Загрузка ресурсов при необходимости
+download_nltk_resources()
 
 # Предобработка текста
 def preprocess_data(df):

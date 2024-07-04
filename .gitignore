@@ -1,0 +1,8 @@
+# Ignore config.py
+config.py
+
+# Ignore virtual environment
+venv/
+
+# Ignore session
+session_name.session

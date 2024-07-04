@@ -1,20 +1,18 @@
 import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from aiogram.contrib.middlewares.logging import LoggingMiddleware
 import asyncio
 import os
 from aiogram.utils import executor
 import pandas as pd
 from parser_1 import parse_channels
-from preprocessing_classificator_new import preprocess_data, classify_text, init_models_async, most_common_meaningful_text_async, generate_summaries
-from aiogram.utils.exceptions import BotBlocked
+from models import preprocess_data, classify_text, init_models_async, most_common_meaningful_text_async, generate_summaries
+from dotenv import load_dotenv
 
 # Настройки бота aiogram
-bot_token = '7388106883:AAGznNWkQqs3dxBb90BXT5OaOS3ln_dD2ZU'
+load_dotenv()
+bot_token = os.getenv('BOT_TOKEN')
 bot = Bot(token=bot_token)
 dp = Dispatcher(bot)
-
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -241,8 +239,8 @@ async def handle_action_choice(message: types.Message):
             summary_text = row['summary']
             original_url = row['URL']
 
-            response_message += f"**Саммари**:\n{summary_text}\n\nСсылка на пост: {original_url}\n\n"
-        await message.answer(response_message, parse_mode='Markdown')
+            response_message += f"Саммари:\n{summary_text}\n\nСсылка на пост: {original_url}\n\n"
+        await message.answer(response_message)
 
         # После показа саммари возвращаем пользователя к выбору действия
         await message.answer("Что хочешь сделать дальше?", reply_markup=action_keyboard)

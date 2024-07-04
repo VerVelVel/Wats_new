@@ -8,11 +8,13 @@ from telethon.tl.types import InputPeerChannel
 import csv
 import asyncio
 import os
+from dotenv import load_dotenv
 
 # Настройки клиента Telethon
-api_id = 29936300
-api_hash = 'fde88dcaee764c22dab01c68a8a3c347'
-phone_number = "+79313528188"
+load_dotenv()
+api_id = os.getenv('TELEGRAM_API_ID')
+api_hash = os.getenv('TELEGRAM_API_HASH')
+phone_number = os.getenv('PHONE_NUMBER')
 
 # Создание клиента Telethon
 client = TelegramClient('session_name', api_id, api_hash)
