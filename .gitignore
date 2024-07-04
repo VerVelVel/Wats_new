@@ -1,5 +1,5 @@
 # Ignore config.py
-config.py
+.env
 
 # Ignore virtual environment
 venv/
