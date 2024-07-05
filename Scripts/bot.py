@@ -151,7 +151,7 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
 
         if os.path.exists(classified_filepath):
             df = pd.read_csv(classified_filepath)
-            await message.answer(f"Классификация уже выполнена ранее. Данные загружены из файла.")
+            await message.answer(f"Классификация уже выполнена ранее. Данные загружены из файла. Приступаю к следующему этапу!")
             logger.info(f"Классификация уже выполнена ранее. Данные загружены из файла {classified_filepath}.")
         else:
             if os.path.exists(filepath):
@@ -177,7 +177,7 @@ async def start_parsing(message: types.Message, links: list, period_days=None, s
         ranked_df.to_csv(ranked_filepath, index=False)
         summary_df.to_csv(summary_filepath, index=False)
         
-        await message.answer(f"Ранжирование и саммаризация завершены. Данные сохранены в файле {filepath}.")
+        await message.answer(f"Ранжирование и саммаризация завершены.")
         logger.info(f"Ранжирование и суммаризация завершены. Данные сохранены в файле {filepath}.")
 
         # Отправка кнопок с категориями пользователю
